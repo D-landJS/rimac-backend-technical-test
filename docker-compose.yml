@@ -1,0 +1,50 @@
+services:
+  localstack:
+    image: localstack/localstack:latest
+    container_name: rimac-localstack
+    restart: unless-stopped
+    ports:
+      - '4566:4566'
+    environment:
+      - LOCALSTACK_AUTH_TOKEN=${LOCALSTACK_AUTH_TOKEN}
+      - SERVICES=lambda,apigateway,dynamodb,sns,sqs,events,iam,sts,cloudformation,logs,s3
+      - DEBUG=0
+      - DOCKER_HOST=unix:///var/run/docker.sock
+    volumes:
+      - localstack-data:/var/lib/localstack
+      - /var/run/docker.sock:/var/run/docker.sock
+
+  mysql_pe:
+    image: mysql:8.0
+    container_name: rimac-mysql-pe
+    restart: unless-stopped
+    ports:
+      - '3306:3306'
+    environment:
+      - MYSQL_ROOT_PASSWORD=root_pass
+      - MYSQL_DATABASE=appointments_pe
+      - MYSQL_USER=appointment_user
+      - MYSQL_PASSWORD=appointment_pass
+    volumes:
+      - mysql-pe-data:/var/lib/mysql
+      - ./db/init-pe.sql:/docker-entrypoint-initdb.d/init-pe.sql:ro
+
+  mysql_cl:
+    image: mysql:8.0
+    container_name: rimac-mysql-cl
+    restart: unless-stopped
+    ports:
+      - '3307:3306'
+    environment:
+      - MYSQL_ROOT_PASSWORD=root_pass
+      - MYSQL_DATABASE=appointments_cl
+      - MYSQL_USER=appointment_user
+      - MYSQL_PASSWORD=appointment_pass
+    volumes:
+      - mysql-cl-data:/var/lib/mysql
+      - ./db/init-cl.sql:/docker-entrypoint-initdb.d/init-cl.sql:ro
+
+volumes:
+  localstack-data:
+  mysql-pe-data:
+  mysql-cl-data:

@@ -1,0 +1,16 @@
+node_modules/
+.claude/
+dist/
+.serverless/
+.esbuild/
+.build/
+coverage/
+*.log
+.env
+.env.local
+.DS_Store
+.idea/
+.vscode/
+mysql-data/
+localstack-data/
+*.tsbuildinfo

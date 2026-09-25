@@ -1,0 +1,276 @@
+service: rimac-appointment-backend
+
+frameworkVersion: '3'
+
+useDotenv: true
+
+plugins:
+  - serverless-esbuild
+  - serverless-localstack
+  - serverless-offline
+
+provider:
+  name: aws
+  runtime: nodejs22.x
+  stage: ${opt:stage, 'dev'}
+  region: ${opt:region, 'us-east-1'}
+  memorySize: 256
+  timeout: 10
+  environment:
+    STAGE: ${self:provider.stage}
+    APPOINTMENTS_TABLE_NAME: ${self:custom.appointmentsTableName}
+    APPOINTMENTS_INSURED_ID_INDEX: ${self:custom.insuredIdIndexName}
+    APPOINTMENTS_TOPIC_ARN: !Ref AppointmentsTopic
+    CONFIRMATION_EVENT_BUS_NAME: ${self:custom.confirmationEventBusName}
+    LOCALSTACK_ENDPOINT: ${env:LOCALSTACK_ENDPOINT, ''}
+  iam:
+    role:
+      statements:
+        - Effect: Allow
+          Action:
+            - dynamodb:PutItem
+            - dynamodb:GetItem
+            - dynamodb:UpdateItem
+          Resource: !GetAtt AppointmentsTable.Arn
+        - Effect: Allow
+          Action:
+            - dynamodb:Query
+          Resource: !Sub '${AppointmentsTable.Arn}/index/${self:custom.insuredIdIndexName}'
+        - Effect: Allow
+          Action:
+            - sns:Publish
+          Resource: !Ref AppointmentsTopic
+        - Effect: Allow
+          Action:
+            - events:PutEvents
+          Resource: !GetAtt ConfirmationEventBus.Arn
+
+custom:
+  appointmentsTableName: Appointments-${self:provider.stage}
+  insuredIdIndexName: InsuredIdIndex
+  confirmationEventBusName: appointments-confirmation-bus-${self:provider.stage}
+  esbuild:
+    bundle: true
+    minify: false
+    sourcemap: true
+    target: node22
+    platform: node
+    exclude:
+      - mysql2
+    packagerOptions:
+      scripts: []
+  serverless-offline:
+    httpPort: 3000
+    noPrependStageInUrl: true
+  localstack:
+    stages:
+      - local
+    host: http://localhost
+    edgePort: 4566
+    autostart: false
+    lambda:
+      mountCode: true
+
+functions:
+  createAppointment:
+    handler: src/handlers/appointment/createAppointment.handler
+    description: 'POST /appointments - registra la solicitud en DynamoDB (PENDING) y publica a SNS'
+    events:
+      - http:
+          path: appointments
+          method: post
+          cors: true
+
+  listAppointments:
+    handler: src/handlers/appointment/listAppointments.handler
+    description: 'GET /appointments/{insuredId} - lista los agendamientos de un asegurado'
+    events:
+      - http:
+          path: appointments/{insuredId}
+          method: get
+          cors: true
+
+  completeAppointment:
+    handler: src/handlers/appointment/completeAppointment.handler
+    description: 'Consume la confirmacion (EventBridge->SQS) y marca la solicitud como COMPLETED'
+    events:
+      - sqs:
+          arn: !GetAtt ConfirmationQueue.Arn
+          batchSize: 10
+          functionResponseType: ReportBatchItemFailures
+
+  processAppointmentPe:
+    handler: src/handlers/appointmentPe/processAppointmentPe.handler
+    description: 'Consume SQS_PE, inserta en mysql_pe y publica confirmacion a EventBridge'
+    vpc:
+      securityGroupIds:
+        - ${env:VPC_SECURITY_GROUP_ID, 'sg-00000000000000000'}
+      subnetIds:
+        - ${env:VPC_SUBNET_ID_A, 'subnet-00000000000000000'}
+        - ${env:VPC_SUBNET_ID_B, 'subnet-00000000000000001'}
+    environment:
+      DB_PE_HOST: ${env:DB_PE_HOST, ''}
+      DB_PE_PORT: ${env:DB_PE_PORT, '3306'}
+      DB_PE_USER: ${env:DB_PE_USER, ''}
+      DB_PE_PASSWORD: ${env:DB_PE_PASSWORD, ''}
+      DB_PE_NAME: ${env:DB_PE_NAME, ''}
+    events:
+      - sqs:
+          arn: !GetAtt PeQueue.Arn
+          batchSize: 10
+          functionResponseType: ReportBatchItemFailures
+
+  processAppointmentCl:
+    handler: src/handlers/appointmentCl/processAppointmentCl.handler
+    description: 'Consume SQS_CL, inserta en mysql_cl y publica confirmacion a EventBridge'
+    vpc:
+      securityGroupIds:
+        - ${env:VPC_SECURITY_GROUP_ID, 'sg-00000000000000000'}
+      subnetIds:
+        - ${env:VPC_SUBNET_ID_A, 'subnet-00000000000000000'}
+        - ${env:VPC_SUBNET_ID_B, 'subnet-00000000000000001'}
+    environment:
+      DB_CL_HOST: ${env:DB_CL_HOST, ''}
+      DB_CL_PORT: ${env:DB_CL_PORT, '3306'}
+      DB_CL_USER: ${env:DB_CL_USER, ''}
+      DB_CL_PASSWORD: ${env:DB_CL_PASSWORD, ''}
+      DB_CL_NAME: ${env:DB_CL_NAME, ''}
+    events:
+      - sqs:
+          arn: !GetAtt ClQueue.Arn
+          batchSize: 10
+          functionResponseType: ReportBatchItemFailures
+
+resources:
+  Resources:
+    AppointmentsTable:
+      Type: AWS::DynamoDB::Table
+      Properties:
+        TableName: ${self:custom.appointmentsTableName}
+        BillingMode: PAY_PER_REQUEST
+        AttributeDefinitions:
+          - AttributeName: appointmentId
+            AttributeType: S
+          - AttributeName: insuredId
+            AttributeType: S
+        KeySchema:
+          - AttributeName: appointmentId
+            KeyType: HASH
+        GlobalSecondaryIndexes:
+          - IndexName: ${self:custom.insuredIdIndexName}
+            KeySchema:
+              - AttributeName: insuredId
+                KeyType: HASH
+            Projection:
+              ProjectionType: ALL
+
+    AppointmentsTopic:
+      Type: AWS::SNS::Topic
+      Properties:
+        TopicName: appointments-topic-${self:provider.stage}
+
+    PeQueue:
+      Type: AWS::SQS::Queue
+      Properties:
+        QueueName: SQS_PE-${self:provider.stage}
+
+    ClQueue:
+      Type: AWS::SQS::Queue
+      Properties:
+        QueueName: SQS_CL-${self:provider.stage}
+
+    PeQueuePolicy:
+      Type: AWS::SQS::QueuePolicy
+      Properties:
+        Queues:
+          - !Ref PeQueue
+        PolicyDocument:
+          Version: '2012-10-17'
+          Statement:
+            - Effect: Allow
+              Principal:
+                Service: sns.amazonaws.com
+              Action: sqs:SendMessage
+              Resource: !GetAtt PeQueue.Arn
+              Condition:
+                ArnEquals:
+                  aws:SourceArn: !Ref AppointmentsTopic
+
+    ClQueuePolicy:
+      Type: AWS::SQS::QueuePolicy
+      Properties:
+        Queues:
+          - !Ref ClQueue
+        PolicyDocument:
+          Version: '2012-10-17'
+          Statement:
+            - Effect: Allow
+              Principal:
+                Service: sns.amazonaws.com
+              Action: sqs:SendMessage
+              Resource: !GetAtt ClQueue.Arn
+              Condition:
+                ArnEquals:
+                  aws:SourceArn: !Ref AppointmentsTopic
+
+    PeSubscription:
+      Type: AWS::SNS::Subscription
+      Properties:
+        TopicArn: !Ref AppointmentsTopic
+        Protocol: sqs
+        Endpoint: !GetAtt PeQueue.Arn
+        RawMessageDelivery: 'true'
+        FilterPolicy:
+          countryISO:
+            - PE
+
+    ClSubscription:
+      Type: AWS::SNS::Subscription
+      Properties:
+        TopicArn: !Ref AppointmentsTopic
+        Protocol: sqs
+        Endpoint: !GetAtt ClQueue.Arn
+        RawMessageDelivery: 'true'
+        FilterPolicy:
+          countryISO:
+            - CL
+
+    ConfirmationEventBus:
+      Type: AWS::Events::EventBus
+      Properties:
+        Name: ${self:custom.confirmationEventBusName}
+
+    ConfirmationQueue:
+      Type: AWS::SQS::Queue
+      Properties:
+        QueueName: SQS_Confirmation-${self:provider.stage}
+
+    ConfirmationRule:
+      Type: AWS::Events::Rule
+      Properties:
+        EventBusName: !Ref ConfirmationEventBus
+        EventPattern:
+          source:
+            - appointment.country
+          detail-type:
+            - AppointmentConfirmed
+        Targets:
+          - Arn: !GetAtt ConfirmationQueue.Arn
+            Id: ConfirmationQueueTarget
+
+    ConfirmationQueuePolicy:
+      Type: AWS::SQS::QueuePolicy
+      Properties:
+        Queues:
+          - !Ref ConfirmationQueue
+        PolicyDocument:
+          Version: '2012-10-17'
+          Statement:
+            - Effect: Allow
+              Principal:
+                Service: events.amazonaws.com
+              Action: sqs:SendMessage
+              Resource: !GetAtt ConfirmationQueue.Arn
+              Condition:
+                ArnEquals:
+                  aws:SourceArn: !GetAtt ConfirmationRule.Arn

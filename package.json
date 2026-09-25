@@ -1,0 +1,55 @@
+{
+  "name": "rimac-appointment-backend",
+  "version": "1.0.0",
+  "description": "Backend serverless para agendamiento de citas medicas de asegurados (PE/CL) - Reto Tecnico Backend Rimac",
+  "main": "serverless.yml",
+  "scripts": {
+    "test": "jest",
+    "test:watch": "jest --watch",
+    "test:coverage": "jest --coverage",
+    "lint": "eslint \"src/**/*.ts\"",
+    "lint:fix": "eslint \"src/**/*.ts\" --fix",
+    "format": "prettier --write \"src/**/*.ts\"",
+    "build": "tsc -p tsconfig.json",
+    "dev:http": "sls offline start --stage local",
+    "deploy:local": "sls deploy --stage local",
+    "deploy": "sls deploy",
+    "deploy:dev": "sls deploy --stage dev",
+    "env:up": "docker-compose up -d",
+    "env:down": "docker-compose down",
+    "env:logs": "docker-compose logs -f",
+    "inspect:dynamodb": "node scripts/inspect-dynamodb.js"
+  },
+  "engines": {
+    "node": ">=20.0.0"
+  },
+  "dependencies": {
+    "@aws-lambda-powertools/logger": "^2.11.0",
+    "@aws-sdk/client-dynamodb": "^3.600.0",
+    "@aws-sdk/client-eventbridge": "^3.600.0",
+    "@aws-sdk/client-sns": "^3.600.0",
+    "@aws-sdk/lib-dynamodb": "^3.600.0",
+    "class-transformer": "^0.5.1",
+    "mysql2": "^3.10.0",
+    "zod": "^3.23.8"
+  },
+  "devDependencies": {
+    "@types/aws-lambda": "^8.10.138",
+    "@types/jest": "^29.5.12",
+    "@types/node": "^20.14.0",
+    "@typescript-eslint/eslint-plugin": "^7.13.0",
+    "@typescript-eslint/parser": "^7.13.0",
+    "esbuild": "^0.21.5",
+    "eslint": "^8.57.0",
+    "eslint-config-prettier": "^9.1.0",
+    "jest": "^29.7.0",
+    "prettier": "^3.3.2",
+    "serverless": "^3.39.0",
+    "serverless-esbuild": "^1.52.1",
+    "serverless-localstack": "^1.2.0",
+    "serverless-offline": "^13.6.0",
+    "ts-jest": "^29.1.5",
+    "ts-node": "^10.9.2",
+    "typescript": "^5.4.5"
+  }
+}

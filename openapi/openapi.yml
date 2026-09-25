@@ -1,0 +1,205 @@
+openapi: 3.0.3
+info:
+  title: Rimac Appointment API
+  description: >
+    API de agendamiento de citas medicas para asegurados (Peru y Chile).
+    Reto Tecnico Backend - Rimac.
+  version: 1.0.0
+servers:
+  - url: https://{apiId}.execute-api.{region}.amazonaws.com/{stage}
+    description: Despliegue en AWS
+    variables:
+      apiId:
+        default: your-api-id
+      region:
+        default: us-east-1
+      stage:
+        default: dev
+  - url: http://localhost:4566/restapis/{apiId}/local/_user_request_
+    description: LocalStack
+    variables:
+      apiId:
+        default: your-local-api-id
+
+tags:
+  - name: Appointments
+    description: Agendamiento de citas medicas
+
+paths:
+  /appointments:
+    post:
+      tags: [Appointments]
+      summary: Registrar una solicitud de agendamiento
+      description: >
+        Guarda la solicitud en estado PENDING y dispara su procesamiento asincrono por pais.
+        Responde de inmediato sin esperar a que el pais confirme el registro.
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/CreateAppointmentRequest'
+            example:
+              insuredId: '00123'
+              scheduleId: 100
+              countryISO: PE
+      responses:
+        '202':
+          description: Solicitud recibida, el agendamiento esta en proceso.
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/AppointmentEnvelope'
+        '400':
+          description: Datos de la solicitud invalidos.
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ErrorResponse'
+        '500':
+          description: Error interno.
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ErrorResponse'
+
+  /appointments/{insuredId}:
+    get:
+      tags: [Appointments]
+      summary: Listar las solicitudes de agendamiento de un asegurado
+      parameters:
+        - name: insuredId
+          in: path
+          required: true
+          description: Codigo de asegurado, 5 digitos (puede tener ceros a la izquierda).
+          schema:
+            type: string
+            pattern: '^\d{5}$'
+            example: '00123'
+      responses:
+        '200':
+          description: Listado de agendamientos del asegurado.
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/AppointmentListEnvelope'
+        '400':
+          description: insuredId invalido.
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ErrorResponse'
+        '500':
+          description: Error interno.
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ErrorResponse'
+
+components:
+  schemas:
+    CreateAppointmentRequest:
+      type: object
+      required: [insuredId, scheduleId, countryISO]
+      properties:
+        insuredId:
+          type: string
+          pattern: '^\d{5}$'
+          description: Codigo del asegurado, 5 digitos (puede tener ceros a la izquierda).
+          example: '00123'
+        scheduleId:
+          type: integer
+          minimum: 1
+          description: >
+            Identificador del "espacio" a agendar (centro medico + especialidad + medico + fecha/hora).
+          example: 100
+        countryISO:
+          type: string
+          enum: [PE, CL]
+          example: PE
+
+    Appointment:
+      type: object
+      properties:
+        appointmentId:
+          type: string
+          format: uuid
+        insuredId:
+          type: string
+          example: '00123'
+        scheduleId:
+          type: integer
+          example: 100
+        countryISO:
+          type: string
+          enum: [PE, CL]
+        status:
+          type: string
+          enum: [PENDING, COMPLETED]
+        createdAt:
+          type: string
+          format: date-time
+        updatedAt:
+          type: string
+          format: date-time
+
+    AppointmentEnvelope:
+      type: object
+      properties:
+        code:
+          type: string
+          description: Codigo de negocio numerado (prefijo "APT" + secuencial).
+          example: APT-001
+        name:
+          type: string
+          description: Nombre semantico del codigo, para legibilidad en logs/debugging.
+          example: APPOINTMENT_REQUEST_RECEIVED
+        message:
+          type: string
+          example: El agendamiento esta en proceso.
+        data:
+          $ref: '#/components/schemas/Appointment'
+
+    AppointmentListEnvelope:
+      type: object
+      properties:
+        code:
+          type: string
+          example: APT-002
+        name:
+          type: string
+          example: APPOINTMENTS_LISTED
+        message:
+          type: string
+          example: Listado de agendamientos obtenido correctamente.
+        data:
+          type: array
+          items:
+            $ref: '#/components/schemas/Appointment'
+
+    ErrorResponse:
+      type: object
+      properties:
+        code:
+          type: string
+          example: APT-007
+        name:
+          type: string
+          example: INVALID_INSURED_ID
+        message:
+          type: string
+          example: El codigo de asegurado debe tener 5 digitos numericos.
+        details:
+          type: array
+          description: >
+            Presente solo cuando el error es APT-005 (INVALID_REQUEST_SHAPE) y hay mas de un campo
+            invalido en el body. Un item por cada campo que fallo la validacion.
+          items:
+            type: object
+            properties:
+              field:
+                type: string
+                example: scheduleId
+              reason:
+                type: string
+                example: Number must be greater than 0
