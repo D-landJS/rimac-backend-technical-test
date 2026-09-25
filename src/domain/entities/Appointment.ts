@@ -3,6 +3,7 @@ import { ScheduleId } from '@domain/value-objects/ScheduleId';
 import { CountryISO } from '@domain/value-objects/CountryISO';
 import { AppointmentStatus } from '@domain/value-objects/AppointmentStatus';
 import { AppointmentPrimitives } from '@domain/types/AppointmentPrimitives';
+import { nowInPeru } from '@shared/date/nowInPeru';
 
 export class Appointment {
   private constructor(
@@ -21,7 +22,7 @@ export class Appointment {
     scheduleId: number;
     countryISO: string;
   }): Appointment {
-    const now = new Date().toISOString();
+    const now = nowInPeru();
     return new Appointment(
       params.appointmentId,
       InsuredId.create(params.insuredId),
@@ -47,7 +48,7 @@ export class Appointment {
 
   public markAsCompleted(): void {
     this._status = AppointmentStatus.COMPLETED;
-    this._updatedAt = new Date().toISOString();
+    this._updatedAt = nowInPeru();
   }
 
   public toPrimitives(): AppointmentPrimitives {

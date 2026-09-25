@@ -36,7 +36,7 @@ export const MySQLConnectionFactory = {
     if (existingPool) {
       return existingPool;
     }
-    const pool = mysql.createPool({ ...readConfigFor(country), connectionLimit: 5 });
+    const pool = mysql.createPool({ ...readConfigFor(country), connectionLimit: 5, timezone: 'Z' });
     pools.set(country, pool);
     return pool;
   },
